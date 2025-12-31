@@ -1,0 +1,24 @@
+# Includo - files to ignore
+
+# Local config (never commit secrets)
+config.local.php
+includo-config.php
+
+# Installer temp / lock
+install/.install.json
+install/install.lock
+install/NGINX_BLOCK.conf
+install/.htaccess
+
+# Generated output / runtime
+storage/
+reports/
+logs/
+cache/
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
