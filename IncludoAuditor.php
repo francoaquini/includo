@@ -7,20 +7,56 @@
  * @author Franco Aquini - Web Salad
  */
 
+declare(strict_types=1);
+
 if (file_exists(__DIR__ . '/config.local.php')) {
     require_once __DIR__ . '/config.local.php';
 } else {
     require_once __DIR__ . '/config.php';
 }
-require_once 'Logger.php';
 
-class IncludoAuditor {
-    private $pdo;
-    private $baseUrl;
-    private $visitedUrls = [];
-    private $maxPages = 100;
+require_once __DIR__ . '/Logger.php';
 
-    public function __construct($host, $dbname, $username, $password) {
+class IncludoAuditor
+{
+    private PDO $pdo;
+    private string $baseUrl = '';
+    private array $visitedUrls = [];
+    private int $maxPages = 100;
+
+    public function getAuditStatistics(int $sessionId): ?array
+    {
+        try {
+            $stmt = $this->pdo->prepare("
+                SELECT
+                    s.id, s.site_url, s.start_time, s.end_time, s.total_pages, s.total_issues, s.status,
+                    COUNT(DISTINCT ai.wcag_criterion) as unique_violations,
+                    AVG(pa.response_time) as avg_response_time,
+                    COUNT(CASE WHEN pa.status_code >= 400 THEN 1 END) as error_pages,
+                    COUNT(CASE WHEN ai.severity = 'critical' THEN 1 END) as critical_issues,
+                    COUNT(CASE WHEN ai.severity = 'high' THEN 1 END) as high_issues,
+                    COUNT(CASE WHEN ai.severity = 'medium' THEN 1 END) as medium_issues,
+                    COUNT(CASE WHEN ai.severity = 'low' THEN 1 END) as low_issues
+                FROM audit_sessions s
+                LEFT JOIN page_audits pa ON s.id = pa.session_id
+                LEFT JOIN accessibility_issues ai ON pa.id = ai.page_audit_id
+                WHERE s.id = ?
+                GROUP BY s.id
+            ");
+            $stmt->execute([$sessionId]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            return $row ?: null;
+        } catch (Throwable $e) {
+            Logger::error("Errore recupero statistiche audit", [
+                'session_id' => $sessionId,
+                'error' => $e->getMessage()
+            ]);
+            return null;
+        }
+    }
+
+    public function __construct(string $host, string $dbname, string $username, string $password)
+    {
         Logger::info("Inizializzazione IncludoAuditor", [
             'host' => $host,
             'dbname' => $dbname,
@@ -28,24 +64,33 @@ class IncludoAuditor {
         ]);
 
         try {
-            $this->pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);
-            $this->pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+            $this->pdo = new PDO(
+                "mysql:host={$host};dbname={$dbname};charset=utf8mb4",
+                $username,
+                $password,
+                [
+                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                ]
+            );
+
             Logger::info("Connessione database stabilita con successo");
 
             $this->initDatabase();
             Logger::info("Database inizializzato con successo");
 
-        } catch(PDOException $e) {
+        } catch (PDOException $e) {
             Logger::critical("Errore connessione database", [
                 'error' => $e->getMessage(),
                 'host' => $host,
                 'dbname' => $dbname
             ]);
-            throw new Exception("Errore connessione database: " . $e->getMessage());
+            throw new RuntimeException("Errore connessione database: " . $e->getMessage(), 0, $e);
         }
     }
 
-    private function initDatabase() {
+    private function initDatabase(): void
+    {
         Logger::debug("Inizializzazione schema database");
 
         $sql = "
@@ -56,8 +101,8 @@ class IncludoAuditor {
             end_time DATETIME NULL,
             total_pages INT DEFAULT 0,
             total_issues INT DEFAULT 0,
-            status ENUM('running', 'completed', 'error') DEFAULT 'running',
-            user_agent VARCHAR(255) DEFAULT 'Includo WCAG Auditor 2.1',
+            status ENUM('running', 'paused', 'completed', 'error') DEFAULT 'running',
+            user_agent VARCHAR(255) DEFAULT 'Includo WCAG Auditor 2.2',
             max_pages_limit INT DEFAULT 100,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -101,7 +146,7 @@ class IncludoAuditor {
             issue_type VARCHAR(100) NOT NULL,
             wcag_criterion VARCHAR(20) NOT NULL,
             wcag_level ENUM('A', 'AA', 'AAA') NOT NULL,
-            wcag_version ENUM('2.0', '2.1', '2.2') DEFAULT '2.1',
+            wcag_version ENUM('2.0', '2.1', '2.2') DEFAULT '2.2',
             severity ENUM('low', 'medium', 'high', 'critical') NOT NULL,
             confidence ENUM('low', 'medium', 'high') DEFAULT 'medium',
             element_selector VARCHAR(500),
@@ -121,158 +166,90 @@ class IncludoAuditor {
             INDEX idx_severity (severity),
             INDEX idx_issue_type (issue_type)
         );
+
+        CREATE TABLE IF NOT EXISTS crawl_queue (
+            id INT PRIMARY KEY AUTO_INCREMENT,
+            session_id INT NOT NULL,
+            url VARCHAR(500) NOT NULL,
+            status ENUM('pending','completed','error') DEFAULT 'pending',
+            discovered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            processed_at DATETIME NULL,
+            FOREIGN KEY (session_id) REFERENCES audit_sessions(id) ON DELETE CASCADE,
+            INDEX idx_session (session_id),
+            INDEX idx_status (status),
+            INDEX idx_url (url(100))
+        );
         ";
 
-        try {
-            $this->pdo->exec($sql);
-            Logger::debug("Schema database creato/verificato con successo");
-        } catch (PDOException $e) {
-            Logger::error("Errore creazione schema database", ['error' => $e->getMessage()]);
-            throw $e;
-        }
+        $this->pdo->exec($sql);
     }
 
-    public function auditSite($siteUrl, $maxPages = 100) {
+    public function auditSite(string $siteUrl, int $maxPages = 100): int
+    {
         Logger::info("=== INIZIO AUDIT SITO ===", [
             'site_url' => $siteUrl,
             'max_pages' => $maxPages
         ]);
 
         $this->baseUrl = rtrim($siteUrl, '/');
-        $this->maxPages = $maxPages;
+        $this->maxPages = max(1, $maxPages);
         $this->visitedUrls = [];
 
-        // Crea sessione di audit
-        try {
-            $stmt = $this->pdo->prepare("INSERT INTO audit_sessions (site_url, max_pages_limit) VALUES (?, ?)");
-            $stmt->execute([$siteUrl, $maxPages]);
-            $sessionId = $this->pdo->lastInsertId();
-            Logger::info("Sessione audit creata", ['session_id' => $sessionId]);
-        } catch (PDOException $e) {
-            Logger::error("Errore creazione sessione audit", ['error' => $e->getMessage()]);
-            throw new Exception("Errore creazione sessione audit: " . $e->getMessage());
-        }
+        $stmt = $this->pdo->prepare("INSERT INTO audit_sessions (site_url, max_pages_limit) VALUES (?, ?)");
+        $stmt->execute([$siteUrl, $this->maxPages]);
+        $sessionId = (int)$this->pdo->lastInsertId();
+
+        $urlsToVisit = [$this->baseUrl];
+        $totalIssues = 0;
+        $pagesAudited = 0;
+
+        $this->showProgressStart($siteUrl);
 
         try {
-            $urlsToVisit = [$this->baseUrl];
-            $totalIssues = 0;
-            $pagesAudited = 0;
-
-            Logger::info("Avvio crawling", ['starting_url' => $this->baseUrl]);
-            $this->showProgressStart($siteUrl);
-
             while (!empty($urlsToVisit) && $pagesAudited < $this->maxPages) {
                 $currentUrl = array_shift($urlsToVisit);
-
-                if (in_array($currentUrl, $this->visitedUrls)) {
-                    Logger::debug("URL già visitato, skip", ['url' => $currentUrl]);
+                if (!$currentUrl || in_array($currentUrl, $this->visitedUrls, true)) {
                     continue;
                 }
 
                 $this->visitedUrls[] = $currentUrl;
-                Logger::debug("Elaborazione URL", [
-                    'url' => $currentUrl,
-                    'progress' => $pagesAudited + 1,
-                    'total' => $this->maxPages
-                ]);
-
-                $this->updateProgress($currentUrl, $pagesAudited, $maxPages);
+                $this->updateProgress($currentUrl, $pagesAudited, $this->maxPages);
 
                 $pageAudit = $this->auditPage($currentUrl, $sessionId);
                 if ($pageAudit) {
-                    $totalIssues += $pageAudit['total_issues'];
+                    $totalIssues += (int)$pageAudit['total_issues'];
                     $pagesAudited++;
 
-                    Logger::info("Pagina auditata", [
-                        'url' => $currentUrl,
-                        'issues_found' => $pageAudit['total_issues'],
-                        'pages_completed' => $pagesAudited
-                    ]);
-
-                    // Trova nuovi link
                     $newUrls = $this->extractLinks($pageAudit['content']);
-                    $newUrlsCount = 0;
                     foreach ($newUrls as $newUrl) {
-                        if (!in_array($newUrl, $this->visitedUrls) && !in_array($newUrl, $urlsToVisit)) {
+                        if (!in_array($newUrl, $this->visitedUrls, true) && !in_array($newUrl, $urlsToVisit, true)) {
                             $urlsToVisit[] = $newUrl;
-                            $newUrlsCount++;
                         }
                     }
-
-                    if ($newUrlsCount > 0) {
-                        Logger::debug("Nuovi link trovati", [
-                            'new_urls' => $newUrlsCount,
-                            'total_queue' => count($urlsToVisit)
-                        ]);
-                    }
-                } else {
-                    Logger::warning("Audit pagina fallito", ['url' => $currentUrl]);
                 }
             }
 
-            // Aggiorna sessione - determina se è veramente completata o solo pausata
-            $hasMoreUrls = !empty($urlsToVisit); // Ci sono ancora URL da visitare?
-            $reachedLimit = ($pagesAudited >= $this->maxPages); // Abbiamo raggiunto il limite?
-            
-            // Determina lo status corretto
-            if ($reachedLimit && $hasMoreUrls) {
-                $status = 'paused'; // Raggiunto limite ma ci sono ancora pagine
-                Logger::info("Sessione pausata - raggiunto limite batch", [
-                    'session_id' => $sessionId,
-                    'pages_audited' => $pagesAudited,
-                    'urls_remaining' => count($urlsToVisit)
-                ]);
-            } else {
-                $status = 'completed'; // Scansione veramente completata
-                Logger::info("Sessione completata - nessun URL rimanente", [
-                    'session_id' => $sessionId,
-                    'pages_audited' => $pagesAudited
-                ]);
-            }
-            
-            try {
-                $stmt = $this->pdo->prepare("UPDATE audit_sessions SET end_time = NOW(), total_pages = ?, total_issues = ?, status = ? WHERE id = ?");
-                $stmt->execute([$pagesAudited, $totalIssues, $status, $sessionId]);
-                Logger::info("Sessione audit aggiornata", [
-                    'session_id' => $sessionId,
-                    'pages_audited' => $pagesAudited,
-                    'total_issues' => $totalIssues
-                ]);
-            } catch (PDOException $e) {
-                Logger::error("Errore aggiornamento sessione", ['error' => $e->getMessage()]);
-            }
+            $hasMoreUrls = !empty($urlsToVisit);
+            $reachedLimit = ($pagesAudited >= $this->maxPages);
+            $status = ($reachedLimit && $hasMoreUrls) ? 'paused' : 'completed';
+
+            $stmt = $this->pdo->prepare("UPDATE audit_sessions SET end_time = NOW(), total_pages = ?, total_issues = ?, status = ? WHERE id = ?");
+            $stmt->execute([$pagesAudited, $totalIssues, $status, $sessionId]);
 
             $this->showProgressComplete($pagesAudited, $totalIssues);
 
-            Logger::info("=== AUDIT COMPLETATO ===", [
-                'session_id' => $sessionId,
-                'pages_audited' => $pagesAudited,
-                'total_issues' => $totalIssues,
-                'urls_visited' => count($this->visitedUrls)
-            ]);
-
             return $sessionId;
 
-        } catch (Exception $e) {
-            Logger::error("Errore durante audit", [
-                'session_id' => $sessionId,
-                'error' => $e->getMessage(),
-                'pages_completed' => $pagesAudited ?? 0
-            ]);
-
-            try {
-                $stmt = $this->pdo->prepare("UPDATE audit_sessions SET status = 'error' WHERE id = ?");
-                $stmt->execute([$sessionId]);
-            } catch (PDOException $dbError) {
-                Logger::error("Errore aggiornamento status sessione", ['error' => $dbError->getMessage()]);
-            }
-
+        } catch (Throwable $e) {
+            Logger::error("Errore durante audit", ['session_id' => $sessionId, 'error' => $e->getMessage()]);
+            $stmt = $this->pdo->prepare("UPDATE audit_sessions SET status = 'error' WHERE id = ?");
+            $stmt->execute([$sessionId]);
             throw $e;
         }
     }
 
-    private function auditPage($url, $sessionId) {
-        Logger::debug("Inizio audit pagina", ['url' => $url]);
+    private function auditPage(string $url, int $sessionId): ?array
+    {
         $startTime = microtime(true);
 
         $ch = curl_init();
@@ -281,101 +258,67 @@ class IncludoAuditor {
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_TIMEOUT => 30,
-            CURLOPT_USERAGENT => 'Includo WCAG Accessibility Auditor 2.1',
+            CURLOPT_USERAGENT => 'Includo WCAG Accessibility Auditor 2.2',
             CURLOPT_SSL_VERIFYPEER => false,
             CURLOPT_MAXREDIRS => 5
         ]);
 
         $content = curl_exec($ch);
-        $statusCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $statusCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $responseTime = microtime(true) - $startTime;
-        $finalUrl = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
-        $redirectCount = curl_getinfo($ch, CURLINFO_REDIRECT_COUNT);
-        $curlError = curl_error($ch);
+        $finalUrl = (string)curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+        $redirectCount = (int)curl_getinfo($ch, CURLINFO_REDIRECT_COUNT);
+        $curlError = (string)curl_error($ch);
         curl_close($ch);
 
-        Logger::debug("Response ricevuta", [
-            'url' => $url,
-            'status_code' => $statusCode,
-            'response_time' => round($responseTime, 3),
-            'content_length' => strlen($content ?: ''),
-            'redirects' => $redirectCount,
-            'curl_error' => $curlError
-        ]);
-
         if (!$content || $statusCode >= 400) {
-            Logger::warning("Pagina non accessibile", [
-                'url' => $url,
-                'status_code' => $statusCode,
-                'curl_error' => $curlError
-            ]);
+            Logger::warning("Pagina non accessibile", ['url' => $url, 'status_code' => $statusCode, 'curl_error' => $curlError]);
             return null;
         }
 
         $dom = new DOMDocument();
         libxml_use_internal_errors(true);
         $dom->loadHTML($content);
-        $errors = libxml_get_errors();
         libxml_clear_errors();
-
-        if (!empty($errors)) {
-            Logger::debug("Errori parsing HTML", [
-                'url' => $url,
-                'errors_count' => count($errors)
-            ]);
-        }
-
         $xpath = new DOMXPath($dom);
 
-        // Estrai metadati
-        $pageData = $this->extractPageMetadata($xpath, $content);
-        Logger::debug("Metadati estratti", array_merge(['url' => $url], $pageData));
+        $pageData = $this->extractPageMetadata($xpath);
 
-        // Inserisci audit pagina
-        try {
-            $stmt = $this->pdo->prepare("
-                INSERT INTO page_audits
-                (session_id, url, title, response_time, status_code, content_length, final_url,
-                 redirects_count, meta_description, h1_count, img_count, link_count, form_count)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ");
-            $stmt->execute([
-                $sessionId, $url, $pageData['title'], $responseTime, $statusCode, strlen($content),
-                $finalUrl, $redirectCount, $pageData['meta_description'], $pageData['h1_count'],
-                $pageData['img_count'], $pageData['link_count'], $pageData['form_count']
-            ]);
-            $pageAuditId = $this->pdo->lastInsertId();
-            Logger::debug("Page audit record creato", [
-                'page_audit_id' => $pageAuditId,
-                'url' => $url
-            ]);
-        } catch (PDOException $e) {
-            Logger::error("Errore inserimento page audit", [
-                'url' => $url,
-                'error' => $e->getMessage()
-            ]);
-            return null;
-        }
+        // Insert page audit
+        $stmt = $this->pdo->prepare("
+            INSERT INTO page_audits
+            (session_id, url, title, response_time, status_code, content_length, final_url,
+             redirects_count, meta_description, h1_count, img_count, link_count, form_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ");
+        $stmt->execute([
+            $sessionId,
+            $url,
+            $pageData['title'],
+            $responseTime,
+            $statusCode,
+            strlen($content),
+            $finalUrl,
+            $redirectCount,
+            $pageData['meta_description'],
+            $pageData['h1_count'],
+            $pageData['img_count'],
+            $pageData['link_count'],
+            $pageData['form_count']
+        ]);
 
-        // Esegui controlli WCAG
+        $pageAuditId = (int)$this->pdo->lastInsertId();
+
+        // WCAG checks
+        $issues = [];
         try {
-            Logger::debug("Avvio controlli WCAG", ['url' => $url]);
-            require_once 'WCAGChecker.php';
+            require_once __DIR__ . '/WCAGChecker.php';
             $checker = new WCAGChecker($dom, $xpath, $content, $url);
             $issues = $checker->performAllChecks();
-            Logger::info("Controlli WCAG completati", [
-                'url' => $url,
-                'issues_found' => count($issues)
-            ]);
-        } catch (Exception $e) {
-            Logger::error("Errore controlli WCAG", [
-                'url' => $url,
-                'error' => $e->getMessage()
-            ]);
-            $issues = [];
+        } catch (Throwable $e) {
+            Logger::error("Errore controlli WCAG", ['url' => $url, 'error' => $e->getMessage()]);
         }
 
-        // Salva problemi
         $totalIssues = 0;
         $levelCounts = ['A' => 0, 'AA' => 0, 'AAA' => 0];
 
@@ -383,50 +326,28 @@ class IncludoAuditor {
             try {
                 $this->saveIssue($pageAuditId, $issue);
                 $totalIssues++;
-                $levelCounts[$issue['level']]++;
-            } catch (Exception $e) {
-                Logger::warning("Errore salvataggio issue", [
-                    'url' => $url,
-                    'issue_type' => $issue['type'] ?? 'unknown',
-                    'error' => $e->getMessage()
-                ]);
+                $lvl = strtoupper((string)($issue['level'] ?? 'A'));
+                if (isset($levelCounts[$lvl])) $levelCounts[$lvl]++;
+            } catch (Throwable $e) {
+                Logger::warning("Errore salvataggio issue", ['url' => $url, 'error' => $e->getMessage()]);
             }
         }
 
-        // Aggiorna contatori
-        try {
-            $stmt = $this->pdo->prepare("
-                UPDATE page_audits
-                SET total_issues = ?, wcag_level_a_issues = ?, wcag_level_aa_issues = ?, wcag_level_aaa_issues = ?
-                WHERE id = ?
-            ");
-            $stmt->execute([$totalIssues, $levelCounts['A'], $levelCounts['AA'], $levelCounts['AAA'], $pageAuditId]);
+        $stmt = $this->pdo->prepare("UPDATE page_audits SET total_issues=?, wcag_level_a_issues=?, wcag_level_aa_issues=?, wcag_level_aaa_issues=? WHERE id=?");
+        $stmt->execute([$totalIssues, $levelCounts['A'], $levelCounts['AA'], $levelCounts['AAA'], $pageAuditId]);
 
-            Logger::debug("Contatori aggiornati", [
-                'page_audit_id' => $pageAuditId,
-                'total_issues' => $totalIssues,
-                'level_counts' => $levelCounts
-            ]);
-        } catch (PDOException $e) {
-            Logger::error("Errore aggiornamento contatori", [
-                'page_audit_id' => $pageAuditId,
-                'error' => $e->getMessage()
-            ]);
-        }
-
-        return [
-            'page_audit_id' => $pageAuditId,
-            'total_issues' => $totalIssues,
-            'content' => $content
-        ];
+        return ['page_audit_id' => $pageAuditId, 'total_issues' => $totalIssues, 'content' => $content];
     }
 
-    private function extractPageMetadata($xpath, $content) {
+    private function extractPageMetadata(DOMXPath $xpath): array
+    {
         $titleNodes = $xpath->query('//title');
-        $title = $titleNodes->length > 0 ? trim($titleNodes->item(0)->textContent) : '';
+        $title = ($titleNodes && $titleNodes->length > 0) ? trim($titleNodes->item(0)->textContent) : '';
 
         $metaDescNodes = $xpath->query('//meta[@name="description"]');
-        $metaDescription = $metaDescNodes->length > 0 ? $metaDescNodes->item(0)->getAttribute('content') : '';
+        $metaDescription = ($metaDescNodes && $metaDescNodes->length > 0)
+            ? (string)$metaDescNodes->item(0)->getAttribute('content')
+            : '';
 
         return [
             'title' => $title,
@@ -438,8 +359,34 @@ class IncludoAuditor {
         ];
     }
 
-    private function saveIssue($pageAuditId, $issue) {
-        $errorMessage = getErrorMessage($issue['type']);
+    private function getIssueHelpUrl(string $issueType, string $criterion = ''): ?string
+    {
+        $issueType = strtolower(trim($issueType));
+
+        $map = [
+            'missing_alt' => 'https://www.w3.org/WAI/WCAG22/Understanding/non-text-content.html',
+            'low_contrast' => 'https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html',
+            'missing_label' => 'https://www.w3.org/WAI/WCAG22/Understanding/labels-or-instructions.html',
+        ];
+
+        return $map[$issueType] ?? ($criterion !== '' ? 'https://www.w3.org/WAI/WCAG22/Understanding/' : null);
+    }
+
+    private function saveIssue(int $pageAuditId, array $issue): void
+    {
+        $type = (string)($issue['type'] ?? 'unknown');
+        $criterion = (string)($issue['criterion'] ?? '0.0.0');
+        $level = strtoupper((string)($issue['level'] ?? 'A'));
+        $severity = strtolower((string)($issue['severity'] ?? 'low'));
+
+        if (!in_array($level, ['A','AA','AAA'], true)) $level = 'A';
+        if (!in_array($severity, ['low','medium','high','critical'], true)) $severity = 'low';
+
+        $selector = isset($issue['selector']) && is_string($issue['selector']) ? $issue['selector'] : null;
+        $description = (string)($issue['description'] ?? 'Issue detected');
+        $recommendation = (string)($issue['recommendation'] ?? 'Review and fix according to WCAG.');
+        $lineNumber = isset($issue['line_number']) ? (int)$issue['line_number'] : null;
+        $helpUrl = isset($issue['help_url']) ? (string)$issue['help_url'] : $this->getIssueHelpUrl($type, $criterion);
 
         $stmt = $this->pdo->prepare("
             INSERT INTO accessibility_issues
@@ -447,324 +394,147 @@ class IncludoAuditor {
              description, recommendation, line_number, help_url)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
+
         $stmt->execute([
             $pageAuditId,
-            $issue['type'],
-            $issue['criterion'],
-            $issue['level'],
-            $issue['severity'],
-            $issue['selector'],
-            $issue['description'],
-            $issue['recommendation'],
-            $issue['line_number'],
-            $errorMessage['help_url'] ?? null
+            $type,
+            $criterion,
+            $level,
+            $severity,
+            $selector,
+            $description,
+            $recommendation,
+            $lineNumber,
+            $helpUrl
         ]);
     }
 
-    private function extractLinks($content) {
-        Logger::debug("Estrazione link dalla pagina");
-
+    private function extractLinks(string $content): array
+    {
         $dom = new DOMDocument();
         libxml_use_internal_errors(true);
         $dom->loadHTML($content);
+        libxml_clear_errors();
         $xpath = new DOMXPath($dom);
 
         $links = [];
         $linkElements = $xpath->query('//a[@href]');
+        if (!$linkElements) return [];
 
         foreach ($linkElements as $link) {
-            $href = $link->getAttribute('href');
+            $href = (string)$link->getAttribute('href');
             $absoluteUrl = $this->makeAbsoluteUrl($href);
 
-            if ($this->isInternalUrl($absoluteUrl) && $this->isValidUrl($absoluteUrl)) {
+            if ($absoluteUrl !== '' && $this->isInternalUrl($absoluteUrl) && $this->isValidUrl($absoluteUrl)) {
                 $links[] = $absoluteUrl;
             }
         }
 
-        $uniqueLinks = array_unique($links);
-        Logger::debug("Link estratti", [
-            'total_links_found' => count($links),
-            'unique_internal_links' => count($uniqueLinks)
-        ]);
-
-        return $uniqueLinks;
+        return array_values(array_unique($links));
     }
 
-    private function makeAbsoluteUrl($url) {
-    // Validazione input
-    if (empty($url) || !is_string($url)) {
-        Logger::debug("makeAbsoluteUrl: URL vuoto", ['url' => $url]);
-        return '';
-    }
-    
-    // Se è già assoluto
-    if (strpos($url, 'http') === 0) {
-        return $url;
-    }
-    
-    // Se inizia con /
-    if (strpos($url, '/') === 0) {
-        $parsed = parse_url($this->baseUrl);
-        if ($parsed && isset($parsed['scheme']) && isset($parsed['host'])) {
-            return $parsed['scheme'] . '://' . $parsed['host'] . $url;
+    private function makeAbsoluteUrl($url): string
+    {
+        if (empty($url) || !is_string($url)) return '';
+
+        if (strpos($url, 'http') === 0) return $url;
+        if (strpos($url, 'mailto:') === 0 || strpos($url, 'tel:') === 0 || strpos($url, 'javascript:') === 0) return '';
+        if (strpos($url, '#') === 0) return '';
+
+        if (strpos($url, '/') === 0) {
+            $parsed = parse_url($this->baseUrl);
+            if ($parsed && isset($parsed['scheme'], $parsed['host'])) {
+                return $parsed['scheme'] . '://' . $parsed['host'] . $url;
+            }
         }
-    }
-    
-    // URL relativo
-    if (!empty($this->baseUrl)) {
-        return $this->baseUrl . '/' . ltrim($url, '/');
-    }
-    
-    return $url;
-}
 
-    private function isInternalUrl($url) {
-        $baseHost = parse_url($this->baseUrl, PHP_URL_HOST);
-        $urlHost = parse_url($url, PHP_URL_HOST);
-
-        return $baseHost === $urlHost &&
-               strpos($url, '#') !== 0 &&
-               strpos($url, 'mailto:') !== 0 &&
-               strpos($url, 'tel:') !== 0 &&
-               !$this->isFileDownload($url);
+        return $this->baseUrl !== '' ? $this->baseUrl . '/' . ltrim($url, '/') : $url;
     }
 
-    private function isValidUrl($url) {
+    private function isInternalUrl(string $url): bool
+    {
+        $baseHost = (string)parse_url($this->baseUrl, PHP_URL_HOST);
+        $urlHost = (string)parse_url($url, PHP_URL_HOST);
+
+        if ($baseHost === '' || $urlHost === '') return false;
+        return $baseHost === $urlHost && !$this->isFileDownload($url);
+    }
+
+    private function isValidUrl(string $url): bool
+    {
         return filter_var($url, FILTER_VALIDATE_URL) !== false;
     }
 
-    private function isFileDownload($url) {
-    // Validazione input
-    if (empty($url) || !is_string($url)) {
-        Logger::debug("isFileDownload: URL vuoto o non valido", ['url' => $url]);
-        return false;
-    }
-    
-    $extensions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'zip', 'rar', '7z'];
-    
-    try {
-        // Estrai il path dall'URL
+    private function isFileDownload($url): bool
+    {
+        if (empty($url) || !is_string($url)) return false;
+
+        $extensions = ['pdf','doc','docx','xls','xlsx','ppt','pptx','zip','rar','7z'];
         $urlPath = parse_url($url, PHP_URL_PATH);
-        
-        // Se il path è vuoto, null o false, non è un file download
-        if (empty($urlPath) || $urlPath === false) {
-            return false;
-        }
-        
-        // Estrai l'estensione in modo sicuro
+        if (empty($urlPath) || $urlPath === false) return false;
+
         $pathInfo = pathinfo($urlPath);
         $extension = isset($pathInfo['extension']) ? strtolower($pathInfo['extension']) : '';
-        
-        $isDownload = in_array($extension, $extensions);
-        
-        if ($isDownload) {
-            Logger::debug("File download rilevato", [
-                'url' => $url,
-                'extension' => $extension
-            ]);
-        }
-        
-        return $isDownload;
-        
-    } catch (Exception $e) {
-        Logger::warning("Errore controllo file download", [
-            'url' => $url,
-            'error' => $e->getMessage()
-        ]);
-        return false;
-    }
-}
 
-    private function showProgressStart($siteUrl) {
+        return in_array($extension, $extensions, true);
+    }
+
+    private function showProgressStart(string $siteUrl): void
+    {
         echo "<div class='audit-progress'>";
         echo "<h3>🔍 Avvio Audit Includo</h3>";
-        echo "<p>Analisi di: <strong>" . htmlspecialchars($siteUrl) . "</strong></p>";
+        echo "<p>Analisi di: <strong>" . htmlspecialchars($siteUrl, ENT_QUOTES, 'UTF-8') . "</strong></p>";
         echo "<div id='progress-container'>";
         echo "<div id='progress-bar' style='width: 0%; background: linear-gradient(45deg, #007bff, #0056b3); height: 25px; border-radius: 10px; transition: width 0.3s; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold;'></div>";
         echo "</div>";
         echo "<p id='current-page'>Preparazione...</p>";
         echo "</div>";
 
-        if (ob_get_level()) {
-            ob_flush();
-            flush();
-        }
+        if (ob_get_level()) { @ob_flush(); }
+        @flush();
     }
 
-    private function updateProgress($currentUrl, $pagesAudited, $maxPages) {
-        $percentage = round(($pagesAudited / $maxPages) * 100);
+    private function updateProgress(string $currentUrl, int $pagesAudited, int $maxPages): void
+    {
+        $maxPages = max(1, $maxPages);
+        $percentage = (int)round(($pagesAudited / $maxPages) * 100);
+        $safeUrl = htmlspecialchars($currentUrl, ENT_QUOTES, 'UTF-8');
+
         echo "<script>";
-        echo "if(document.getElementById('current-page')) document.getElementById('current-page').innerHTML = 'Analizzando: " . htmlspecialchars($currentUrl) . "';";
+        echo "if(document.getElementById('current-page')) document.getElementById('current-page').innerHTML = 'Analizzando: {$safeUrl}';";
         echo "if(document.getElementById('progress-bar')) { ";
-        echo "document.getElementById('progress-bar').style.width = '$percentage%'; ";
-        echo "document.getElementById('progress-bar').innerHTML = '$percentage%'; ";
+        echo "document.getElementById('progress-bar').style.width = '{$percentage}%'; ";
+        echo "document.getElementById('progress-bar').innerHTML = '{$percentage}%'; ";
         echo "}";
         echo "</script>";
 
-        if (ob_get_level()) {
-            ob_flush();
-            flush();
-        }
+        if (ob_get_level()) { @ob_flush(); }
+        @flush();
     }
 
-    private function showProgressComplete($pagesAudited, $totalIssues) {
+    private function showProgressComplete(int $pagesAudited, int $totalIssues): void
+    {
+        $msg = "✅ Audit completato: {$pagesAudited} pagine analizzate, {$totalIssues} problemi rilevati";
+        $safeMsg = htmlspecialchars($msg, ENT_QUOTES, 'UTF-8');
+
         echo "<script>";
         echo "if(document.getElementById('progress-bar')) {";
         echo "document.getElementById('progress-bar').style.width = '100%';";
         echo "document.getElementById('progress-bar').innerHTML = '100%';";
         echo "}";
-        echo "if(document.getElementById('current-page')) document.getElementById('current-page').innerHTML = '✅ Audit completato: $pagesAudited pagine analizzate, $totalIssues problemi rilevati';";
+        echo "if(document.getElementById('current-page')) document.getElementById('current-page').innerHTML = '{$safeMsg}';";
         echo "</script>";
     }
 
-    // Metodi pubblici
-
-    public function generateReport($sessionId, $format = 'html') {
-        Logger::info("Richiesta generazione report", [
-            'session_id' => $sessionId,
-            'format' => $format
-        ]);
-
-        try {
-            require_once 'ReportGenerator.php';
-            $generator = new ReportGenerator($this->pdo);
-            $report = $generator->generateReport($sessionId, $format);
-
-            Logger::info("Report generato con successo", [
-                'session_id' => $sessionId,
-                'format' => $format,
-                'size' => strlen($report)
-            ]);
-
-            return $report;
-        } catch (Exception $e) {
-            Logger::error("Errore generazione report", [
-                'session_id' => $sessionId,
-                'format' => $format,
-                'error' => $e->getMessage()
-            ]);
-            throw $e;
-        }
+    public function generateReport(int $sessionId, string $format = 'html'): string
+    {
+        require_once __DIR__ . '/ReportGenerator.php';
+        $generator = new ReportGenerator($this->pdo);
+        return $generator->generateReport($sessionId, $format);
     }
 
-    public function getPDO() {
+    public function getPDO(): PDO
+    {
         return $this->pdo;
     }
-
-    public function getAuditStatistics($sessionId) {
-        Logger::debug("Richiesta statistiche audit", ['session_id' => $sessionId]);
-
-        try {
-            $stmt = $this->pdo->prepare("
-                SELECT
-                    s.id, s.site_url, s.start_time, s.end_time, s.total_pages, s.total_issues, s.status,
-                    COUNT(DISTINCT ai.wcag_criterion) as unique_violations,
-                    AVG(pa.response_time) as avg_response_time,
-                    COUNT(CASE WHEN pa.status_code >= 400 THEN 1 END) as error_pages,
-                    COUNT(CASE WHEN ai.severity = 'critical' THEN 1 END) as critical_issues,
-                    COUNT(CASE WHEN ai.severity = 'high' THEN 1 END) as high_issues,
-                    COUNT(CASE WHEN ai.severity = 'medium' THEN 1 END) as medium_issues,
-                    COUNT(CASE WHEN ai.severity = 'low' THEN 1 END) as low_issues
-                FROM audit_sessions s
-                LEFT JOIN page_audits pa ON s.id = pa.session_id
-                LEFT JOIN accessibility_issues ai ON pa.id = ai.page_audit_id
-                WHERE s.id = ?
-                GROUP BY s.id
-            ");
-
-            $stmt->execute([$sessionId]);
-            $stats = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            if ($stats) {
-                Logger::debug("Statistiche recuperate", $stats);
-            } else {
-                Logger::warning("Nessuna statistica trovata", ['session_id' => $sessionId]);
-            }
-
-            return $stats;
-        } catch (PDOException $e) {
-            Logger::error("Errore recupero statistiche", [
-                'session_id' => $sessionId,
-                'error' => $e->getMessage()
-            ]);
-            return null;
-        }
-    }
-
-    /**
-     * Verifica se una sessione è veramente completata (tutto il sito scansionato)
-     * o solo pausata (raggiunto limite batch)
-     */
-    private function isSessionTrulyComplete($sessionId) {
-        Logger::debug("Verifica completamento reale sessione", ['session_id' => $sessionId]);
-        
-        try {
-            $stmt = $this->pdo->prepare("
-                SELECT 
-                    COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_urls,
-                    COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_urls,
-                    COUNT(CASE WHEN status = 'error' THEN 1 END) as error_urls,
-                    MAX(discovered_at) as last_discovery
-                FROM crawl_queue 
-                WHERE session_id = ?
-            ");
-            
-            $stmt->execute([$sessionId]);
-            $result = $stmt->fetch(PDO::FETCH_ASSOC);
-            
-            if (!$result) {
-                return false;
-            }
-            
-            // Una sessione è veramente completa se:
-            // 1. Non ci sono URL in attesa (pending)
-            // 2. Abbiamo processato almeno qualche URL
-            $isComplete = ($result['pending_urls'] == 0 && $result['completed_urls'] > 0);
-            
-            Logger::debug("Risultato verifica completamento", [
-                'session_id' => $sessionId,
-                'pending_urls' => $result['pending_urls'],
-                'completed_urls' => $result['completed_urls'],
-                'is_truly_complete' => $isComplete
-            ]);
-            
-            return $isComplete;
-            
-        } catch (PDOException $e) {
-            Logger::error("Errore verifica completamento", [
-                'session_id' => $sessionId,
-                'error' => $e->getMessage()
-            ]);
-            return false;
-        }
-    }
-
-    public function cleanupOldAudits($daysOld = 30) {
-        Logger::info("Pulizia audit vecchi", ['days_old' => $daysOld]);
-
-        try {
-            $stmt = $this->pdo->prepare("
-                DELETE FROM audit_sessions
-                WHERE start_time < DATE_SUB(NOW(), INTERVAL ? DAY)
-                AND status IN ('completed', 'error')
-            ");
-
-            $result = $stmt->execute([$daysOld]);
-            $deletedRows = $stmt->rowCount();
-
-            Logger::info("Pulizia completata", [
-                'days_old' => $daysOld,
-                'deleted_sessions' => $deletedRows
-            ]);
-
-            return $result;
-        } catch (PDOException $e) {
-            Logger::error("Errore pulizia audit", [
-                'days_old' => $daysOld,
-                'error' => $e->getMessage()
-            ]);
-            return false;
-        }
-    }
 }
-?>

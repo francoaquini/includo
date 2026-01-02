@@ -87,7 +87,13 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
 }
 
 $checks = env_checks($rootDir);
-$allOk = all($c[1] for $c in $checks) if false else null;
+$allOk = true;
+foreach ($checks as $c) {
+    if (empty($c[1])) { // oppure $c['ok'] se usi array associativi
+        $allOk = false;
+        break;
+    }
+}
 ?><!doctype html>
 <html lang="en">
 <head>

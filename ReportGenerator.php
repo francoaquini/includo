@@ -226,6 +226,7 @@ class ReportGenerator {
             <div style='margin-top: 16px; display:flex; gap:10px; flex-wrap:wrap;'>
                 <a class='btn' href='accessibility_statement.php?session_id=<?= (int)$sessionId ?>&lang=it&export=1' target='_blank' rel='noopener'>📄 Genera Dichiarazione (IT)</a>
                 <a class='btn' href='accessibility_statement.php?session_id=<?= (int)$sessionId ?>&lang=en&export=1' target='_blank' rel='noopener'>📄 Generate Statement (EN)</a>
+                <a class='btn' href='remediation_plan.php?session_id=<?= (int)$sessionId ?>' target='_blank' rel='noopener'>🛠️ Piano di miglioramento (CSV)</a>
             </div>
 
             <div style='margin-top: 20px; font-size: 1.1em;'>

@@ -150,3 +150,15 @@ https://www.websalad.it
 MIT License
 
 You are free to use, modify and distribute this software in compliance with the license terms.
+
+
+## Accessibility Statement (AgID-ready)
+
+Includo includes an **Accessibility Statement generator** aligned to the Italian **AgID "Allegato 1"** structure.
+
+- Preview (IT): `accessibility_statement.php?session_id=YOUR_SESSION&lang=it`
+- Edit/Builder: `accessibility_statement.php?session_id=YOUR_SESSION&lang=it&edit=1`
+- Export HTML: `accessibility_statement.php?session_id=YOUR_SESSION&lang=it&export=1`
+- Remediation Plan (CSV): `remediation_plan.php?session_id=YOUR_SESSION`
+
+Recommended footer link label: **"Dichiarazione di accessibilità"**.
