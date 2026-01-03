@@ -7,6 +7,7 @@
 class Logger {
     private static $logFile;
     private static $debugMode = true;
+    private static $buffered = [];
     
     public static function init($logFile = null) {
         if ($logFile) {
@@ -62,19 +63,26 @@ class Logger {
             file_put_contents(self::$logFile, $logLine, FILE_APPEND | LOCK_EX);
         }
         
-        // In modalità debug, mostra anche a schermo
+        // In modalità debug, bufferizza i messaggi da mostrare a schermo
         if (self::$debugMode && ($level === 'ERROR' || $level === 'CRITICAL')) {
-            echo "<div style='background: #ffebee; color: #c62828; padding: 10px; margin: 5px 0; border-radius: 5px; font-family: monospace;'>";
-            echo "<strong>[$level]</strong> $message";
+            $html = "<div style='background: #ffebee; color: #c62828; padding: 10px; margin: 5px 0; border-radius: 5px; font-family: monospace;'>";
+            $html .= "<strong>[$level]</strong> " . htmlspecialchars((string)$message);
             if (!empty($context)) {
-                echo "<br><small>" . json_encode($context, JSON_PRETTY_PRINT) . "</small>";
+                $html .= "<br><small>" . htmlspecialchars(json_encode($context, JSON_PRETTY_PRINT)) . "</small>";
             }
-            echo "</div>";
-            
-            if (ob_get_level()) {
-                ob_flush();
-                flush();
+            $html .= "</div>";
+            self::$buffered[] = $html;
+        }
+    }
+
+    public static function renderBuffered()
+    {
+        if (!empty(self::$buffered)) {
+            foreach (self::$buffered as $b) {
+                echo $b;
             }
+            // clear after rendering
+            self::$buffered = [];
         }
     }
     

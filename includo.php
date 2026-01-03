@@ -561,6 +561,7 @@ if (!isset($_POST['audit_site']) && !isset($_GET['report'])) {
 
     <div class="container">
         <?php require __DIR__ . '/partials/header.php'; ?>
+        <?php if (class_exists('Logger')) { Logger::renderBuffered(); } ?>
         
         <?php if (isset($_GET['debug'])): ?>
         <div class="debug-panel">
