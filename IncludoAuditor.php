@@ -350,11 +350,6 @@ class IncludoAuditor
         return ['page_audit_id' => $pageAuditId, 'total_issues' => $totalIssues, 'content' => $content];
     }
 
-    public function getPDO()
-    {
-        return $this->pdo;
-    }
-
     /**
      * Resume an existing audit session using the saved remaining_queue.
      * Continues the audit appending page audits to the existing session.
