@@ -267,6 +267,7 @@ if ($edit === 1) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Includo – Builder Dichiarazione</title>
+  <link rel="stylesheet" href="<?php echo INCLUDO_BASE_PATH; ?>assets/navbar.css">
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;margin:24px;max-width:980px}
     .card{border:1px solid #e5e7eb;border-radius:14px;padding:18px;margin:14px 0;box-shadow:0 1px 6px rgba(0,0,0,.05)}
@@ -281,6 +282,7 @@ if ($edit === 1) {
   </style>
 </head>
 <body>
+<?php require __DIR__ . '/partials/navbar.php'; ?>
 
 <h1>🧩 Dichiarazione di accessibilità – Builder</h1>
 <p class="muted">
@@ -402,6 +404,7 @@ Sessione: <strong>#<?= (int)$sessionId ?></strong> — Sito: <strong><?= h((stri
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title><?= h($title) ?> – <?= h($site) ?></title>
+  <link rel="stylesheet" href="<?php echo INCLUDO_BASE_PATH; ?>assets/navbar.css">
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;margin:24px;max-width:980px;line-height:1.45}
     h1{margin-bottom:6px}
@@ -417,6 +420,7 @@ Sessione: <strong>#<?= (int)$sessionId ?></strong> — Sito: <strong><?= h((stri
   </style>
 </head>
 <body>
+<?php require __DIR__ . '/partials/navbar.php'; ?>
 
 <h1><?= h($title) ?></h1>
 <p class="muted">

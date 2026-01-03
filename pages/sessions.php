@@ -44,44 +44,7 @@ try {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Storico Scansioni - Includo</title>
-    <link rel="stylesheet" href="../assets/navbar.css">
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            margin: 0; padding: 0;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh; color: #333;
-        }
-        
-        /* Include navbar styles */
-        .navbar {
-            background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);
-            padding: 15px 0; box-shadow: 0 2px 20px rgba(0,0,0,0.1);
-            position: sticky; top: 0; z-index: 1000;
-        }
-        .nav-container {
-            max-width: 1200px; margin: 0 auto; padding: 0 20px;
-            display: flex; justify-content: space-between; align-items: center;
-        }
-        .nav-brand {
-            font-size: 1.8em; font-weight: bold;
-            background: linear-gradient(45deg, #007bff, #0056b3);
-            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-            background-clip: text; text-decoration: none;
-        }
-        .nav-menu {
-            display: flex; gap: 0; list-style: none; margin: 0; padding: 0;
-        }
-        .nav-link {
-            display: block; padding: 12px 20px; text-decoration: none;
-            color: #333; font-weight: 500; border-radius: 8px;
-            transition: all 0.3s; white-space: nowrap;
-        }
-        .nav-link:hover, .nav-link.active {
-            background: linear-gradient(45deg, #007bff, #0056b3);
-            color: white; transform: translateY(-2px);
-        }
-        
+    <link rel="stylesheet" href="<?php echo INCLUDO_BASE_PATH; ?>assets/navbar.css">
         .main-container {
             max-width: 1200px; margin: 0 auto; padding: 20px;
         }
@@ -192,18 +155,7 @@ try {
     </style>
 </head>
 <body>
-    <!-- Menu di navigazione -->
-    <nav class="navbar">
-        <div class="nav-container">
-            <a href="?" class="nav-brand">🎯 Includo</a>
-            <ul class="nav-menu">
-                <li><a href="?" class="nav-link">🏠 Home</a></li>
-                <li><a href="?page=sessions" class="nav-link active">📊 Storico Scansioni</a></li>
-                <li><a href="?page=new" class="nav-link">🚀 Nuova Scansione</a></li>
-                <li><a href="?page=help" class="nav-link">💡 Guida</a></li>
-            </ul>
-        </div>
-    </nav>
+    <?php require __DIR__ . '/../partials/navbar.php'; ?>
 
     <div class="main-container">
         <div class="content-card">

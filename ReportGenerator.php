@@ -72,6 +72,7 @@ class ReportGenerator {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Includo - Report Accessibilità WCAG | <?= htmlspecialchars($session['site_url']) ?></title>
+    <link rel="stylesheet" href="<?php echo INCLUDO_BASE_PATH; ?>assets/navbar.css">
     <style>
         * { box-sizing: border-box; }
         body { 
@@ -219,6 +220,7 @@ class ReportGenerator {
     </style>
 </head>
 <body>
+    <?php include __DIR__ . '/partials/navbar.php'; ?>
     <div class='container'>
         <div class='header'>
             <h1>🎯 Includo</h1>

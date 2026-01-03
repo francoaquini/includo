@@ -11,6 +11,20 @@ define('DB_USER', 'root');  // Update with your credentials  // Modifica con le 
 define('DB_PASS', '');  // Update with your credentials  // Modifica con le tue credenziali
 define('DB_CHARSET', 'utf8mb4');
 
+// Base path for web assets and links. If Includo is served from a subfolder,
+// this will contain the folder path (with trailing slash), e.g. "/includo/".
+// Can be overridden in config.local.php.
+if (!defined('INCLUDO_BASE_PATH')) {
+    $script = $_SERVER['SCRIPT_NAME'] ?? '';
+    $dir = rtrim(str_replace('\\', '/', dirname($script)), '/');
+    if ($dir === '' || $dir === '.') {
+        $dir = '';
+    } else {
+        $dir = $dir . '/';
+    }
+    define('INCLUDO_BASE_PATH', $dir);
+}
+
 // Configurazioni Audit
 define('DEFAULT_MAX_PAGES', 50);
 define('MAX_PAGES_LIMIT', 500);

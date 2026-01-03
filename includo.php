@@ -536,72 +536,13 @@ if (!isset($_POST['audit_site']) && !isset($_GET['report'])) {
             .compliance-badges { flex-direction: column; align-items: center; }
         }
         
-        /* Menu di navigazione */
-        .navbar {
-            background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);
-            padding: 15px 0; box-shadow: 0 2px 20px rgba(0,0,0,0.1);
-            position: sticky; top: 0; z-index: 1000;
-        }
-        .nav-container {
-            max-width: 1200px; margin: 0 auto; padding: 0 20px;
-            display: flex; justify-content: space-between; align-items: center;
-        }
-        .nav-brand {
-            font-size: 1.8em; font-weight: bold;
-            background: linear-gradient(45deg, #007bff, #0056b3);
-            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-            background-clip: text; text-decoration: none;
-        }
-        .nav-menu {
-            display: flex; gap: 0; list-style: none; margin: 0; padding: 0;
-        }
-        .nav-item {
-            position: relative;
-        }
-        .nav-link {
-            display: block; padding: 12px 20px; text-decoration: none;
-            color: #333; font-weight: 500; border-radius: 8px;
-            transition: all 0.3s; white-space: nowrap;
-        }
-        .nav-link:hover, .nav-link.active {
-            background: linear-gradient(45deg, #007bff, #0056b3);
-            color: white; transform: translateY(-2px);
-        }
-        .nav-link.active {
-            box-shadow: 0 4px 15px rgba(0,123,255,0.3);
-        }
     </style>
 </head>
 <body>
 
-    <!-- Menu di navigazione -->
-    <nav class="navbar">
-        <div class="nav-container">
-            <a href="?" class="nav-brand">🎯 Includo</a>
-            <ul class="nav-menu">
-                <li class="nav-item">
-                    <a href="?" class="nav-link <?php echo (!isset($_GET['page']) ? 'active' : ''); ?>">
-                        🏠 Home
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="?page=sessions" class="nav-link <?php echo (isset($_GET['page']) && $_GET['page'] === 'sessions' ? 'active' : ''); ?>">
-                        📊 Storico Scansioni
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="?page=new" class="nav-link <?php echo (isset($_GET['page']) && $_GET['page'] === 'new' ? 'active' : ''); ?>">
-                        🚀 Nuova Scansione
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="?page=help" class="nav-link <?php echo (isset($_GET['page']) && $_GET['page'] === 'help' ? 'active' : ''); ?>">
-                        💡 Guida
-                    </a>
-                </li>
-            </ul>
-        </div>
-    </nav>
+    <link rel="stylesheet" href="<?php echo INCLUDO_BASE_PATH; ?>assets/navbar.css">
+    <?php require __DIR__ . '/partials/navbar.php'; ?>
+
     <div class="container">
         <div class="header">
             <h1>🎯 Includo</h1>
