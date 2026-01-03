@@ -32,6 +32,18 @@ try {
     require_once __DIR__ . '/config.php';
 }
     Logger::info("Config caricato con successo");
+
+    // Ensure INCLUDO_BASE_PATH is defined even if config.local.php doesn't set it
+    if (!defined('INCLUDO_BASE_PATH')) {
+        $script = $_SERVER['SCRIPT_NAME'] ?? '';
+        $dir = rtrim(str_replace('\\', '/', dirname($script)), '/');
+        if ($dir === '' || $dir === '.') {
+            $dir = '';
+        } else {
+            $dir = $dir . '/';
+        }
+        define('INCLUDO_BASE_PATH', $dir);
+    }
     
     Logger::debug("Caricamento IncludoAuditor.php");
     require_once 'IncludoAuditor.php';
