@@ -185,10 +185,18 @@ class IncludoAuditor
 
         // Ensure audit_sessions has a column to store remaining queue (JSON/text)
         try {
-            $this->pdo->exec("ALTER TABLE audit_sessions ADD COLUMN IF NOT EXISTS remaining_queue TEXT NULL;");
+            $dbName = (string)$this->pdo->query('SELECT DATABASE()')->fetchColumn();
+            $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'audit_sessions' AND COLUMN_NAME = 'remaining_queue'");
+            $stmt->execute([$dbName]);
+            $exists = (int)$stmt->fetchColumn() > 0;
+            if (!$exists) {
+                $this->pdo->exec("ALTER TABLE audit_sessions ADD COLUMN remaining_queue TEXT NULL");
+                Logger::info('Added column remaining_queue to audit_sessions');
+            } else {
+                Logger::debug('Column remaining_queue already exists in audit_sessions');
+            }
         } catch (Throwable $e) {
-            // ignore if ALTER not supported; resume will still work if column exists
-            Logger::debug('Could not ensure remaining_queue column: ' . $e->getMessage());
+            Logger::warning('Could not ensure remaining_queue column: ' . $e->getMessage());
         }
     }
 
