@@ -302,6 +302,21 @@ Logger::info("Report generato con successo", [
         echo "</pre>";
         echo "</div>";
     }
+
+    // Resume audit if requested
+    if (isset($_GET['resume'])) {
+        $resumeId = intval($_GET['resume']);
+        if ($resumeId > 0) {
+            try {
+                $auditor->resumeAudit($resumeId);
+                header('Location: ' . INCLUDO_BASE_PATH . '?page=sessions');
+                exit;
+            } catch (Exception $e) {
+                Logger::error('Errore resume: ' . $e->getMessage());
+                echo "<div class='error-container'><h3>Errore nel riprendere la scansione: " . htmlspecialchars($e->getMessage()) . "</h3></div>";
+            }
+        }
+    }
     
 } catch (Exception $e) {
     Logger::logException($e, [
@@ -380,8 +395,9 @@ if (!isset($_POST['audit_site']) && !isset($_GET['report'])) {
             break;
             
         case 'help':
-            // Pagina guida - per ora usa la home
-            $showInterface = true;
+            // Pagina guida
+            require_once 'pages/help.php';
+            exit;
             break;
             
         default:
@@ -544,11 +560,7 @@ if (!isset($_POST['audit_site']) && !isset($_GET['report'])) {
     <?php require __DIR__ . '/partials/navbar.php'; ?>
 
     <div class="container">
-        <div class="header">
-            <h1>🎯 Includo</h1>
-            <div class="subtitle">Sistema Professionale di Audit Accessibilità Web</div>
-            <div class="version">Versione 2.1.0 | Conforme WCAG 2.2 & European Accessibility Act</div>
-        </div>
+        <?php require __DIR__ . '/partials/header.php'; ?>
         
         <?php if (isset($_GET['debug'])): ?>
         <div class="debug-panel">
@@ -629,7 +641,7 @@ if (!isset($_POST['audit_site']) && !isset($_GET['report'])) {
                     <li>Conformità telecomunicazioni e media</li>
                     <li>Dichiarazione di accessibilità obbligatoria</li>
                     <li>Meccanismi di feedback per cittadini</li>
-                    <li>Preparazione scadenza 28 giugno 2025</li>
+                    <li>Preparazione conformità European Accessibility Act</li>
                 </ul>
             </div>
             
@@ -691,9 +703,9 @@ if (!isset($_POST['audit_site']) && !isset($_GET['report'])) {
                 <div class="compliance-badge">Section 508</div>
             </div>
             
-            <p style="margin-top: 25px; font-size: 1.1em;">
-                <strong>⏰ Scadenza EAA: 28 giugno 2025</strong><br>
-                Assicurati che il tuo sito sia conforme in tempo con Includo!
+                <p style="margin-top: 25px; font-size: 1.1em;">
+                <strong>⏰ European Accessibility Act</strong><br>
+                Assicurati che il tuo sito sia conforme alle normative con Includo.
             </p>
         </div>
     </div>

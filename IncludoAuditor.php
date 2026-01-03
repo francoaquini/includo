@@ -182,6 +182,14 @@ class IncludoAuditor
         ";
 
         $this->pdo->exec($sql);
+
+        // Ensure audit_sessions has a column to store remaining queue (JSON/text)
+        try {
+            $this->pdo->exec("ALTER TABLE audit_sessions ADD COLUMN IF NOT EXISTS remaining_queue TEXT NULL;");
+        } catch (Throwable $e) {
+            // ignore if ALTER not supported; resume will still work if column exists
+            Logger::debug('Could not ensure remaining_queue column: ' . $e->getMessage());
+        }
     }
 
     public function auditSite(string $siteUrl, int $maxPages = 100): int
@@ -233,8 +241,11 @@ class IncludoAuditor
             $reachedLimit = ($pagesAudited >= $this->maxPages);
             $status = ($reachedLimit && $hasMoreUrls) ? 'paused' : 'completed';
 
-            $stmt = $this->pdo->prepare("UPDATE audit_sessions SET end_time = NOW(), total_pages = ?, total_issues = ?, status = ? WHERE id = ?");
-            $stmt->execute([$pagesAudited, $totalIssues, $status, $sessionId]);
+            // Persist remaining queue (if any) so the session can be resumed later
+            $remainingJson = $hasMoreUrls ? json_encode(array_values($urlsToVisit)) : null;
+
+            $stmt = $this->pdo->prepare("UPDATE audit_sessions SET end_time = NOW(), total_pages = ?, total_issues = ?, status = ?, remaining_queue = ? WHERE id = ?");
+            $stmt->execute([$pagesAudited, $totalIssues, $status, $remainingJson, $sessionId]);
 
             $this->showProgressComplete($pagesAudited, $totalIssues);
 
@@ -337,6 +348,89 @@ class IncludoAuditor
         $stmt->execute([$totalIssues, $levelCounts['A'], $levelCounts['AA'], $levelCounts['AAA'], $pageAuditId]);
 
         return ['page_audit_id' => $pageAuditId, 'total_issues' => $totalIssues, 'content' => $content];
+    }
+
+    public function getPDO()
+    {
+        return $this->pdo;
+    }
+
+    /**
+     * Resume an existing audit session using the saved remaining_queue.
+     * Continues the audit appending page audits to the existing session.
+     */
+    public function resumeAudit(int $sessionId): int
+    {
+        Logger::info("Resume audit requested", ['session_id' => $sessionId]);
+
+        $stmt = $this->pdo->prepare("SELECT site_url, max_pages_limit, total_pages, total_issues, remaining_queue FROM audit_sessions WHERE id = ?");
+        $stmt->execute([$sessionId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            throw new Exception("Session not found: $sessionId");
+        }
+
+        $this->baseUrl = rtrim($row['site_url'], '/');
+        $this->maxPages = max(1, (int)$row['max_pages_limit']);
+        $pagesAudited = (int)$row['total_pages'];
+        $totalIssues = (int)$row['total_issues'];
+
+        // Reconstruct visitedUrls from page_audits
+        $stmt = $this->pdo->prepare("SELECT url FROM page_audits WHERE session_id = ?");
+        $stmt->execute([$sessionId]);
+        $visited = $stmt->fetchAll(PDO::FETCH_COLUMN, 0);
+        $this->visitedUrls = $visited ?: [];
+
+        $urlsToVisit = [];
+        if (!empty($row['remaining_queue'])) {
+            $decoded = json_decode($row['remaining_queue'], true);
+            if (is_array($decoded)) $urlsToVisit = $decoded;
+        }
+
+        $this->showProgressStart($this->baseUrl);
+
+        try {
+            while (!empty($urlsToVisit) && $pagesAudited < $this->maxPages) {
+                $currentUrl = array_shift($urlsToVisit);
+                if (!$currentUrl || in_array($currentUrl, $this->visitedUrls, true)) {
+                    continue;
+                }
+
+                $this->visitedUrls[] = $currentUrl;
+                $this->updateProgress($currentUrl, $pagesAudited, $this->maxPages);
+
+                $pageAudit = $this->auditPage($currentUrl, $sessionId);
+                if ($pageAudit) {
+                    $totalIssues += (int)$pageAudit['total_issues'];
+                    $pagesAudited++;
+
+                    $newUrls = $this->extractLinks($pageAudit['content']);
+                    foreach ($newUrls as $newUrl) {
+                        if (!in_array($newUrl, $this->visitedUrls, true) && !in_array($newUrl, $urlsToVisit, true)) {
+                            $urlsToVisit[] = $newUrl;
+                        }
+                    }
+                }
+            }
+
+            $hasMoreUrls = !empty($urlsToVisit);
+            $reachedLimit = ($pagesAudited >= $this->maxPages);
+            $status = ($reachedLimit && $hasMoreUrls) ? 'paused' : 'completed';
+            $remainingJson = $hasMoreUrls ? json_encode(array_values($urlsToVisit)) : null;
+
+            $stmt = $this->pdo->prepare("UPDATE audit_sessions SET end_time = NOW(), total_pages = ?, total_issues = ?, status = ?, remaining_queue = ? WHERE id = ?");
+            $stmt->execute([$pagesAudited, $totalIssues, $status, $remainingJson, $sessionId]);
+
+            $this->showProgressComplete($pagesAudited, $totalIssues);
+
+            return $sessionId;
+
+        } catch (Throwable $e) {
+            Logger::error("Errore durante resume audit", ['session_id' => $sessionId, 'error' => $e->getMessage()]);
+            $stmt = $this->pdo->prepare("UPDATE audit_sessions SET status = 'error' WHERE id = ?");
+            $stmt->execute([$sessionId]);
+            throw $e;
+        }
     }
 
     private function extractPageMetadata(DOMXPath $xpath): array

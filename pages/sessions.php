@@ -75,10 +75,10 @@ try {
             border-color: #dc3545; background: linear-gradient(135deg, #f8d7da, #fff5f5);
         }
         
-        .session-card.paused {
+        .session-card.incomplete {
             border-color: #ffc107; background: linear-gradient(135deg, #fff3cd, #fef9e7);
         }
-        .status-paused { background: #fff3cd; color: #856404; }
+        .status-incomplete { background: #fff3cd; color: #856404; }
         
         .session-header {
             display: flex; justify-content: space-between; align-items: flex-start;
@@ -156,6 +156,7 @@ try {
 </head>
 <body>
     <?php require __DIR__ . '/../partials/navbar.php'; ?>
+    <?php require __DIR__ . '/../partials/header.php'; ?>
 
     <div class="main-container">
         <div class="content-card">
@@ -185,10 +186,10 @@ try {
                                 $statusText = 'Completata';
                                 $statusIcon = '✅';
                                 break;
-                            case 'paused':
-                                $statusClass = 'paused';
-                                $statusText = 'In Pausa';
-                                $statusIcon = '⏸️';
+                                case 'paused':
+                                $statusClass = 'incomplete';
+                                $statusText = 'Incompleta';
+                                $statusIcon = '⚠️';
                                 break;
                             case 'running':
                                 $statusClass = 'running';
@@ -236,11 +237,15 @@ try {
                                 </a>
                                 
                                 <?php if ($session['status'] === 'running' && $session['completion_percentage'] < 100): ?>
-                                    <a href="?resume=<?= $session['id'] ?>" class="btn btn-success">
+                                    <a href="<?php echo INCLUDO_BASE_PATH; ?>?resume=<?= $session['id'] ?>" class="btn btn-success">
+                                        ▶️ Continua
+                                    </a>
+                                <?php elseif ($session['status'] === 'paused'): ?>
+                                    <a href="<?php echo INCLUDO_BASE_PATH; ?>?resume=<?= $session['id'] ?>" class="btn btn-success">
                                         ▶️ Continua
                                     </a>
                                 <?php elseif ($session['status'] === 'error'): ?>
-                                    <a href="?resume=<?= $session['id'] ?>" class="btn btn-secondary">
+                                    <a href="<?php echo INCLUDO_BASE_PATH; ?>?resume=<?= $session['id'] ?>" class="btn btn-secondary">
                                         🔄 Riprova
                                     </a>
                                 <?php else: ?>
