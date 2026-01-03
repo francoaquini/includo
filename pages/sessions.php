@@ -45,6 +45,7 @@ try {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Storico Scansioni - Includo</title>
     <link rel="stylesheet" href="<?php echo INCLUDO_BASE_PATH; ?>assets/navbar.css">
+    <style>
         .main-container {
             max-width: 1200px; margin: 0 auto; padding: 20px;
         }
