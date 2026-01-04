@@ -320,8 +320,12 @@ Logger::info("Report generato con successo", [
         $resumeId = intval($_GET['resume']);
         if ($resumeId > 0) {
             try {
+                // Run resume and display progress output from auditor directly.
+                // Avoid redirecting immediately so the user can see progress/feedback.
                 $auditor->resumeAudit($resumeId);
-                header('Location: ' . INCLUDO_BASE_PATH . '?page=sessions');
+                echo "<div style='margin:20px 0; text-align:center;'>";
+                echo "<a href='" . INCLUDO_BASE_PATH . "?page=sessions' class='btn btn-primary' style='display:inline-block; padding:12px 18px; border-radius:8px; text-decoration:none; color:#fff; background:linear-gradient(45deg,#007bff,#0056b3);'>← Torna a Storico Scansioni</a>";
+                echo "</div>";
                 exit;
             } catch (Exception $e) {
                 Logger::error('Errore resume: ' . $e->getMessage());
@@ -568,6 +572,7 @@ if (!isset($_POST['audit_site']) && !isset($_GET['report'])) {
 </head>
 <body>
 
+    <link rel="stylesheet" href="<?php echo INCLUDO_BASE_PATH; ?>assets/global.css">
     <link rel="stylesheet" href="<?php echo INCLUDO_BASE_PATH; ?>assets/navbar.css">
     <?php require __DIR__ . '/partials/navbar.php'; ?>
 

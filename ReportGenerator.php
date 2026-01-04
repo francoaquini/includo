@@ -72,6 +72,7 @@ class ReportGenerator {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Includo - Report Accessibilità WCAG | <?= htmlspecialchars($session['site_url']) ?></title>
+    <link rel="stylesheet" href="<?php echo INCLUDO_BASE_PATH; ?>assets/global.css">
     <link rel="stylesheet" href="<?php echo INCLUDO_BASE_PATH; ?>assets/navbar.css">
     <style>
         * { box-sizing: border-box; }

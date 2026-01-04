@@ -44,6 +44,7 @@ try {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Storico Scansioni - Includo</title>
+    <link rel="stylesheet" href="<?php echo INCLUDO_BASE_PATH; ?>assets/global.css">
     <link rel="stylesheet" href="<?php echo INCLUDO_BASE_PATH; ?>assets/navbar.css">
     <style>
         .main-container {

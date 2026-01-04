@@ -267,6 +267,7 @@ if ($edit === 1) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Includo – Builder Dichiarazione</title>
+  <link rel="stylesheet" href="<?php echo INCLUDO_BASE_PATH; ?>assets/global.css">
   <link rel="stylesheet" href="<?php echo INCLUDO_BASE_PATH; ?>assets/navbar.css">
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;margin:24px;max-width:980px}

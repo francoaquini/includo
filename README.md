@@ -162,3 +162,24 @@ Includo includes an **Accessibility Statement generator** aligned to the Italian
 - Remediation Plan (CSV): `remediation_plan.php?session_id=YOUR_SESSION`
 
 Recommended footer link label: **"Dichiarazione di accessibilità"**.
+
+## Background resume worker (optional)
+
+Includo provides a small CLI worker that can resume paused audit sessions in background. This is useful for long crawls where you prefer to continue processing via cron or a systemd timer rather than via web requests.
+
+Script: `bin/resume_worker.php`
+
+Example crontab (run every 15 minutes):
+```cron
+*/15 * * * * /usr/bin/php /path/to/includo/bin/resume_worker.php >> /path/to/includo/logs/resume_worker.log 2>&1
+```
+
+You can also run it manually from the project root:
+```bash
+php bin/resume_worker.php
+```
+
+Notes:
+- Ensure the PHP CLI binary path (`/usr/bin/php`) matches your environment.
+- The worker requires database credentials as configured in `config.php` or `config.local.php`.
+- Logs are appended to the standard logger file; the cron line above redirects worker output to `logs/resume_worker.log` for convenience.

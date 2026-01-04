@@ -1,4 +1,10 @@
 /* Navbar styles (extracted from includo.php) */
+.site-font-reset {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
 .navbar {
     background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);
     padding: 15px 0; box-shadow: 0 2px 20px rgba(0,0,0,0.1);
@@ -6,7 +12,7 @@
 }
 .nav-container {
     max-width: 1200px; margin: 0 auto; padding: 0 20px;
-    display: flex; justify-content: space-between; align-items: center;
+    width: 100%; display: flex; justify-content: space-between; align-items: center;
 }
 .nav-brand {
     font-size: 1.8em; font-weight: bold;
@@ -16,6 +22,7 @@
 }
 .nav-menu {
     display: flex; gap: 0; list-style: none; margin: 0; padding: 0;
+    flex-wrap: nowrap;
 }
 .nav-item {
     position: relative;
